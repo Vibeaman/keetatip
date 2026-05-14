@@ -1,0 +1,28 @@
+{
+  "name": "keetatip",
+  "version": "1.0.0",
+  "description": "Tip anyone with KTA on Keeta Network - Telegram bot + Payment links",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "bot": "node src/bot.js",
+    "server": "node src/server.js"
+  },
+  "keywords": ["keeta", "tip", "telegram", "bot", "crypto"],
+  "author": "Vibeaman",
+  "license": "MIT",
+  "dependencies": {
+    "@keetanetwork/keetanet-client": "^0.16.2",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "node-telegram-bot-api": "^0.67.0",
+    "qrcode": "^1.5.4",
+    "sql.js": "^1.14.1",
+    "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.8.0",
+    "typescript": "^6.0.3"
+  }
+}
