@@ -13,8 +13,8 @@ const NETWORK = process.env.KEETA_NETWORK || 'test'
  */
 async function createWallet() {
   try {
-    // Generate random 32-byte seed (64 hex chars)
-    const seed = crypto.randomBytes(32).toString('hex').toUpperCase()
+    // Generate random 32-byte seed (64 hex chars) - must be lowercase
+    const seed = crypto.randomBytes(32).toString('hex')
     
     // Create account from seed
     const account = KeetaNet.lib.Account.fromSeed(seed, 0)
