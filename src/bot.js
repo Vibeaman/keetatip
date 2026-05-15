@@ -52,7 +52,7 @@ async function start() {
       await bot.sendMessage(chatId, '🔐 Creating your Keeta wallet...')
 
       try {
-        const wallet = await keeta.createWallet()
+        const wallet = keeta.createWallet()
         const encryptedSeed = encryptSeed(wallet.seed, userId.toString())
 
         db.prepare(`

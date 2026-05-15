@@ -11,22 +11,21 @@ const NETWORK = process.env.KEETA_NETWORK || 'test'
 /**
  * Generate a new wallet (seed + address)
  */
-async function createWallet() {
-  try {
-    // Generate random 32-byte seed (64 hex chars) - must be lowercase
-    const seed = crypto.randomBytes(32).toString('hex')
-    
-    // Create account from seed
-    const account = KeetaNet.lib.Account.fromSeed(seed, 0)
-    const address = account.publicKeyString.get()
-    
-    return {
-      seed: seed,
-      address: address
-    }
-  } catch (e) {
-    console.error('Error creating wallet:', e)
-    throw e
+function createWallet() {
+  // Generate random 32-byte seed (64 hex chars) - must be lowercase
+  const seed = crypto.randomBytes(32).toString('hex')
+  console.log('Generated seed')
+  
+  // Create account from seed
+  const account = KeetaNet.lib.Account.fromSeed(seed, 0)
+  console.log('Created account')
+  
+  const address = account.publicKeyString.get()
+  console.log('Got address:', address)
+  
+  return {
+    seed: seed,
+    address: address
   }
 }
 
