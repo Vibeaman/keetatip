@@ -99,6 +99,70 @@ async function start() {
     }
   })
 
+  // /balance command
+  bot.onText(/\/balance/, async (msg) => {
+    const chatId = msg.chat.id
+    const userId = msg.from.id
+    
+    try {
+      const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+      if (!user) {
+        await bot.sendMessage(chatId, '❌ Please /start first to create a wallet.')
+        return
+      }
+      
+      await bot.sendMessage(chatId, '⏳ Fetching balance...')
+      
+      const seed = decryptSeed(user.encrypted_seed, userId.toString())
+      const balance = await keeta.getBalance(seed)
+      
+      let text = '💰 <b>Your Balance</b>\n\n'
+      if (typeof balance === 'object') {
+        for (const [token, amount] of Object.entries(balance)) {
+          text += `• ${token}: ${amount}\n`
+        }
+      } else {
+        text += `• KTA: ${balance}\n`
+      }
+      
+      await bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: mainMenu })
+    } catch (e) {
+      console.error('Balance command error:', e)
+      await bot.sendMessage(chatId, '❌ Error fetching balance.', { reply_markup: mainMenu })
+    }
+  })
+
+  // /mylink command
+  bot.onText(/\/mylink|\/link/, async (msg) => {
+    const chatId = msg.chat.id
+    const userId = msg.from.id
+    
+    try {
+      const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+      if (!user) {
+        await bot.sendMessage(chatId, '❌ Please /start first to create a wallet.')
+        return
+      }
+      
+      const link = await db.prepare('SELECT * FROM payment_links WHERE user_id = ? AND is_active = 1').get(userId)
+      
+      if (link) {
+        const fullUrl = `${BASE_URL}/${link.slug}`
+        await bot.sendMessage(chatId,
+          `🔗 <b>Your Payment Link</b>\n\n` +
+          `<a href="${fullUrl}">${fullUrl}</a>\n\n` +
+          `Share this link to receive tips!`,
+          { parse_mode: 'HTML', reply_markup: mainMenu }
+        )
+      } else {
+        await bot.sendMessage(chatId, '❌ No payment link found.', { reply_markup: mainMenu })
+      }
+    } catch (e) {
+      console.error('MyLink command error:', e)
+      await bot.sendMessage(chatId, '❌ Error.', { reply_markup: mainMenu })
+    }
+  })
+
   // Handle button presses
   bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id
