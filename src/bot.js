@@ -76,7 +76,7 @@ async function start() {
         await bot.sendMessage(chatId,
           `✅ *Wallet Created!*\n\n` +
           `💳 Your address:\n\`${wallet.address}\`\n\n` +
-          `🔗 Your tip link:\n${BASE_URL}/${slug}\n\n` +
+          `🔗 Your tip link: ${BASE_URL}/${slug}\n\n` +
           `⚠️ _This is a testnet wallet. Get test KTA from the faucet._`,
           { parse_mode: 'Markdown' }
         )
