@@ -163,6 +163,220 @@ async function start() {
     }
   })
 
+  // /send command
+  bot.onText(/\/send(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id
+    const userId = msg.from.id
+    
+    const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+    if (!user) {
+      await bot.sendMessage(chatId, '❌ Please /start first to create a wallet.')
+      return
+    }
+    
+    userState.set(userId, { step: 'send_address' })
+    await bot.sendMessage(chatId,
+      '📤 <b>Send KTA</b>\n\n' +
+      'Enter the recipient address or @username:',
+      { parse_mode: 'HTML' }
+    )
+  })
+
+  // /tip command - /tip @username amount
+  bot.onText(/\/tip(?:\s+@(\w+)\s+([\d.]+))?/, async (msg, match) => {
+    const chatId = msg.chat.id
+    const userId = msg.from.id
+    
+    const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+    if (!user) {
+      await bot.sendMessage(chatId, '❌ Please /start first to create a wallet.')
+      return
+    }
+    
+    if (match && match[1] && match[2]) {
+      // Direct tip: /tip @user 5
+      const targetUsername = match[1].toLowerCase()
+      const amount = parseFloat(match[2])
+      
+      if (isNaN(amount) || amount <= 0) {
+        await bot.sendMessage(chatId, '❌ Invalid amount.')
+        return
+      }
+      
+      const toUser = await db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(targetUsername)
+      if (!toUser) {
+        await bot.sendMessage(chatId, '❌ User not found. They need to /start the bot first.', { reply_markup: mainMenu })
+        return
+      }
+      
+      await bot.sendMessage(chatId, `⏳ Tipping @${targetUsername} ${amount} KTA...`)
+      
+      try {
+        const seed = decryptSeed(user.encrypted_seed, userId.toString())
+        const result = await keeta.sendTokens(seed, toUser.keeta_address, amount)
+        
+        if (result.success) {
+          await db.prepare(`
+            INSERT INTO tips (from_user_id, to_user_id, amount, tx_hash)
+            VALUES (?, ?, ?, ?)
+          `).run(userId, toUser.telegram_id, amount.toString(), result.txHash)
+          
+          try {
+            await bot.sendMessage(toUser.telegram_id,
+              `💸 <b>You received a tip!</b>\n\n` +
+              `From: @${user.username}\n` +
+              `Amount: ${amount} KTA`,
+              { parse_mode: 'HTML' }
+            )
+          } catch (e) { }
+          
+          await bot.sendMessage(chatId,
+            `✅ <b>Tipped @${targetUsername}!</b>\n\nAmount: ${amount} KTA`,
+            { parse_mode: 'HTML', reply_markup: mainMenu }
+          )
+        } else {
+          await bot.sendMessage(chatId, `❌ Failed: ${result.error}`, { reply_markup: mainMenu })
+        }
+      } catch (e) {
+        console.error('Tip error:', e)
+        await bot.sendMessage(chatId, '❌ Error tipping.', { reply_markup: mainMenu })
+      }
+    } else {
+      // Start tip flow
+      userState.set(userId, { step: 'tip_user' })
+      await bot.sendMessage(chatId,
+        '💸 <b>Tip a User</b>\n\n' +
+        'Enter @username and amount:\n' +
+        'Example: <code>@john 5</code>',
+        { parse_mode: 'HTML' }
+      )
+    }
+  })
+
+  // /receive command
+  bot.onText(/\/receive/, async (msg) => {
+    const chatId = msg.chat.id
+    const userId = msg.from.id
+    
+    const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+    if (!user) {
+      await bot.sendMessage(chatId, '❌ Please /start first to create a wallet.')
+      return
+    }
+    
+    const link = await db.prepare('SELECT * FROM payment_links WHERE user_id = ? AND is_active = 1').get(userId)
+    const tipUrl = link ? `${BASE_URL}/${link.slug}` : `${BASE_URL}/user${userId}`
+    
+    await bot.sendMessage(chatId,
+      `📥 <b>Receive KTA</b>\n\n` +
+      `Your address:\n<code>${user.keeta_address}</code>\n\n` +
+      `Share this address to receive KTA.\n\n` +
+      `🔗 Or share your tip link:\n<a href="${tipUrl}">${tipUrl}</a>`,
+      { parse_mode: 'HTML', reply_markup: mainMenu }
+    )
+  })
+
+  // /history command
+  bot.onText(/\/history/, async (msg) => {
+    const chatId = msg.chat.id
+    const userId = msg.from.id
+    
+    const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+    if (!user) {
+      await bot.sendMessage(chatId, '❌ Please /start first to create a wallet.')
+      return
+    }
+    
+    const tips = await db.prepare(`
+      SELECT t.*, 
+        (SELECT username FROM users WHERE telegram_id = t.from_user_id) as from_user,
+        (SELECT username FROM users WHERE telegram_id = t.to_user_id) as to_user
+      FROM tips t
+      WHERE t.from_user_id = ? OR t.to_user_id = ?
+      ORDER BY t.created_at DESC
+      LIMIT 10
+    `).all(userId, userId)
+    
+    if (tips.length === 0) {
+      await bot.sendMessage(chatId, '📜 No transaction history yet.', { reply_markup: mainMenu })
+      return
+    }
+    
+    let text = '📜 <b>Recent Transactions</b>\n\n'
+    for (const tip of tips) {
+      const direction = tip.from_user_id === userId ? '📤' : '📥'
+      const other = tip.from_user_id === userId ? tip.to_user : tip.from_user
+      text += `${direction} ${tip.amount} ${tip.token} ${tip.from_user_id === userId ? 'to' : 'from'} @${other}\n`
+    }
+    
+    await bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: mainMenu })
+  })
+
+  // /leaderboard command
+  bot.onText(/\/leaderboard/, async (msg) => {
+    const chatId = msg.chat.id
+    
+    const topTippers = await db.prepare(`
+      SELECT u.username, SUM(CAST(t.amount AS REAL)) as total
+      FROM tips t
+      JOIN users u ON t.from_user_id = u.telegram_id
+      GROUP BY t.from_user_id
+      ORDER BY total DESC
+      LIMIT 10
+    `).all()
+    
+    const topReceivers = await db.prepare(`
+      SELECT u.username, SUM(CAST(t.amount AS REAL)) as total
+      FROM tips t
+      JOIN users u ON t.to_user_id = u.telegram_id
+      GROUP BY t.to_user_id
+      ORDER BY total DESC
+      LIMIT 10
+    `).all()
+    
+    let text = '🏆 <b>Leaderboard</b>\n\n'
+    
+    text += '<b>Top Tippers:</b>\n'
+    if (topTippers.length === 0) {
+      text += '<i>No tips yet</i>\n'
+    } else {
+      topTippers.forEach((t, i) => {
+        text += `${i + 1}. @${t.username} - ${t.total} KTA\n`
+      })
+    }
+    
+    text += '\n<b>Top Receivers:</b>\n'
+    if (topReceivers.length === 0) {
+      text += '<i>No tips yet</i>\n'
+    } else {
+      topReceivers.forEach((r, i) => {
+        text += `${i + 1}. @${r.username} - ${r.total} KTA\n`
+      })
+    }
+    
+    await bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: mainMenu })
+  })
+
+  // /help command
+  bot.onText(/\/help/, async (msg) => {
+    const chatId = msg.chat.id
+    
+    await bot.sendMessage(chatId,
+      `📖 <b>KeetaTip Commands</b>\n\n` +
+      `/start - Create wallet & show menu\n` +
+      `/balance - Check your KTA balance\n` +
+      `/send - Send KTA to address or @user\n` +
+      `/tip @user amount - Tip a user\n` +
+      `/receive - Show your address & tip link\n` +
+      `/mylink - Get your payment link\n` +
+      `/history - View transaction history\n` +
+      `/leaderboard - Top tippers & receivers\n\n` +
+      `<b>Group Tipping:</b>\n` +
+      `Reply to a message with <code>$tip 5</code> to tip 5 KTA`,
+      { parse_mode: 'HTML', reply_markup: mainMenu }
+    )
+  })
+
   // Handle button presses
   bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id
