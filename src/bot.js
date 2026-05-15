@@ -76,7 +76,7 @@ async function start() {
         await bot.sendMessage(chatId,
           `✅ *Wallet Created!*\n\n` +
           `💳 Your address:\n\`${wallet.address}\`\n\n` +
-          `🔗 Your tip link: ${BASE_URL}/${slug}\n\n` +
+          `🔗 [Your tip link](${BASE_URL}/${slug})\n\n` +
           `⚠️ _This is a testnet wallet. Get test KTA from the faucet._`,
           { parse_mode: 'Markdown' }
         )
@@ -155,7 +155,7 @@ async function start() {
       if (link) {
         await bot.sendMessage(chatId,
           `🔗 *Your Payment Link*\n\n` +
-          `${BASE_URL}/${link.slug}\n\n` +
+          `[${BASE_URL}/${link.slug}](${BASE_URL}/${link.slug})\n\n` +
           `Share this link to receive tips!`,
           { parse_mode: 'Markdown', reply_markup: mainMenu }
         )
