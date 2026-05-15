@@ -73,12 +73,13 @@ async function start() {
           `).run(userId, `${slug}${Math.floor(Math.random() * 1000)}`)
         }
 
+        const tipUrl = `${BASE_URL}/${slug}`
         await bot.sendMessage(chatId,
-          `✅ *Wallet Created!*\n\n` +
-          `💳 Your address:\n\`${wallet.address}\`\n\n` +
-          `🔗 [Your tip link](${BASE_URL}/${slug})\n\n` +
-          `⚠️ _This is a testnet wallet. Get test KTA from the faucet._`,
-          { parse_mode: 'Markdown' }
+          `✅ <b>Wallet Created!</b>\n\n` +
+          `💳 Your address:\n<code>${wallet.address}</code>\n\n` +
+          `🔗 Your tip link: <a href="${tipUrl}">${tipUrl}</a>\n\n` +
+          `⚠️ <i>This is a testnet wallet. Get test KTA from the faucet.</i>`,
+          { parse_mode: 'HTML' }
         )
 
         user = db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
@@ -153,11 +154,12 @@ async function start() {
       const link = db.prepare('SELECT * FROM payment_links WHERE user_id = ? AND is_active = 1').get(userId)
       
       if (link) {
+        const fullUrl = `${BASE_URL}/${link.slug}`
         await bot.sendMessage(chatId,
-          `🔗 *Your Payment Link*\n\n` +
-          `[${BASE_URL}/${link.slug}](${BASE_URL}/${link.slug})\n\n` +
+          `🔗 <b>Your Payment Link</b>\n\n` +
+          `<a href="${fullUrl}">${fullUrl}</a>\n\n` +
           `Share this link to receive tips!`,
-          { parse_mode: 'Markdown', reply_markup: mainMenu }
+          { parse_mode: 'HTML', reply_markup: mainMenu }
         )
       } else {
         await bot.sendMessage(chatId, '❌ No payment link found.', { reply_markup: mainMenu })
