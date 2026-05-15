@@ -26,55 +26,66 @@ app.get('/health', (req, res) => {
 app.get('/api/user/:slug', async (req, res) => {
   const { slug } = req.params
 
-  const link = db.prepare(`
-    SELECT pl.*, u.username, u.keeta_address
-    FROM payment_links pl
-    JOIN users u ON pl.user_id = u.telegram_id
-    WHERE pl.slug = ? AND pl.is_active = 1
-  `).get(slug)
+  try {
+    const link = await db.prepare(`
+      SELECT pl.*, u.username, u.keeta_address
+      FROM payment_links pl
+      JOIN users u ON pl.user_id = u.telegram_id
+      WHERE pl.slug = ? AND pl.is_active = 1
+    `).get(slug)
 
-  if (!link) {
-    return res.status(404).json({ error: 'User not found' })
+    if (!link) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    res.json({
+      username: link.username,
+      address: link.keeta_address,
+      slug: link.slug,
+      defaultAmount: link.default_amount,
+      description: link.description
+    })
+  } catch (e) {
+    console.error('API error:', e)
+    res.status(500).json({ error: 'Server error' })
   }
-
-  res.json({
-    username: link.username,
-    address: link.keeta_address,
-    slug: link.slug,
-    defaultAmount: link.default_amount,
-    description: link.description
-  })
 })
 
 // API: Get recent payments for a link
 app.get('/api/payments/:slug', async (req, res) => {
   const { slug } = req.params
 
-  const link = db.prepare('SELECT * FROM payment_links WHERE slug = ?').get(slug)
-  if (!link) {
-    return res.status(404).json({ error: 'Link not found' })
+  try {
+    const link = await db.prepare('SELECT * FROM payment_links WHERE slug = ?').get(slug)
+    if (!link) {
+      return res.status(404).json({ error: 'Link not found' })
+    }
+
+    const payments = await db.prepare(`
+      SELECT * FROM payments
+      WHERE link_id = ?
+      ORDER BY created_at DESC
+      LIMIT 20
+    `).all(link.id)
+
+    res.json(payments)
+  } catch (e) {
+    console.error('API error:', e)
+    res.status(500).json({ error: 'Server error' })
   }
-
-  const payments = db.prepare(`
-    SELECT * FROM payments
-    WHERE link_id = ?
-    ORDER BY created_at DESC
-    LIMIT 20
-  `).all(link.id)
-
-  res.json(payments)
 })
 
 // Payment link page
 app.get('/:slug', async (req, res) => {
   const { slug } = req.params
 
-  const link = db.prepare(`
-    SELECT pl.*, u.username, u.keeta_address
-    FROM payment_links pl
-    JOIN users u ON pl.user_id = u.telegram_id
-    WHERE pl.slug = ? AND pl.is_active = 1
-  `).get(slug)
+  try {
+    const link = await db.prepare(`
+      SELECT pl.*, u.username, u.keeta_address
+      FROM payment_links pl
+      JOIN users u ON pl.user_id = u.telegram_id
+      WHERE pl.slug = ? AND pl.is_active = 1
+    `).get(slug)
 
   if (!link) {
     return res.status(404).send(`
@@ -269,7 +280,11 @@ app.get('/:slug', async (req, res) => {
 </html>
   `
 
-  res.send(html)
+    res.send(html)
+  } catch (e) {
+    console.error('Payment page error:', e)
+    res.status(500).send('Server error')
+  }
 })
 
 // Home page
