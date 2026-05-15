@@ -186,7 +186,9 @@ const dbWrapper = {
         while (pgSql.includes('?')) {
           pgSql = pgSql.replace('?', `$${i++}`)
         }
+        console.log(`[DB GET] ${pgSql}`, params)
         const result = await db.query(pgSql, params)
+        console.log(`[DB GET] rows: ${result.rows.length}`)
         return result.rows[0]
       } else {
         const stmt = db.prepare(sql)

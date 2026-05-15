@@ -47,6 +47,8 @@ async function start() {
     try {
       // Check if user exists
       let user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+      
+      console.log(`🔍 User lookup for ${userId}:`, user ? 'FOUND' : 'NOT FOUND')
 
       if (!user) {
         // Create new wallet
