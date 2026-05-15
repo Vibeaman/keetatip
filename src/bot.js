@@ -40,9 +40,9 @@ async function start() {
   bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id
     const userId = msg.from.id
-    const username = msg.from.username || msg.from.first_name
+    const telegramUsername = msg.from.username || msg.from.first_name
 
-    console.log(`👋 /start from ${username} (${userId})`)
+    console.log(`👋 /start from ${telegramUsername} (${userId})`)
 
     try {
       // Check if user exists
@@ -51,46 +51,30 @@ async function start() {
       console.log(`🔍 User lookup for ${userId}:`, user ? 'FOUND' : 'NOT FOUND')
 
       if (!user) {
-        // Create new wallet
-        await bot.sendMessage(chatId, '🔐 Creating your Keeta wallet...')
-
-        const wallet = keeta.createWallet()
-        const encryptedSeed = encryptSeed(wallet.seed, userId.toString())
-
-        await db.prepare(`
-          INSERT INTO users (telegram_id, username, keeta_address, encrypted_seed)
-          VALUES (?, ?, ?, ?)
-        `).run(userId, username, wallet.address, encryptedSeed)
-
-        // Create default payment link
-        const slug = username?.toLowerCase().replace(/[^a-z0-9]/g, '') || `user${userId}`
-        try {
-          await db.prepare(`
-            INSERT INTO payment_links (user_id, slug) VALUES (?, ?)
-          `).run(userId, slug)
-        } catch (e) {
-          // Slug might already exist, add random suffix
-          await db.prepare(`
-            INSERT INTO payment_links (user_id, slug) VALUES (?, ?)
-          `).run(userId, `${slug}${Math.floor(Math.random() * 1000)}`)
-        }
-
-        const tipUrl = `${BASE_URL}/${slug}`
+        // New user - ask them to choose a username
+        userState.set(userId, { step: 'choose_username', telegramUsername })
         await bot.sendMessage(chatId,
-          `✅ <b>Wallet Created!</b>\n\n` +
-          `💳 Your address:\n<code>${wallet.address}</code>\n\n` +
-          `🔗 Your tip link: <a href="${tipUrl}">${tipUrl}</a>\n\n` +
-          `⚠️ <i>This is a testnet wallet. Get test KTA from the faucet.</i>`,
+          `👋 <b>Welcome to KeetaTip!</b>\n\n` +
+          `Let's set up your wallet.\n\n` +
+          `First, choose a <b>username</b> for your tip link:\n` +
+          `• Letters and numbers only (a-z, 0-9)\n` +
+          `• 3-15 characters\n` +
+          `• Example: <code>john</code>, <code>alice99</code>\n\n` +
+          `Your tip link will be:\n<code>${BASE_URL}/yourname</code>`,
           { parse_mode: 'HTML' }
         )
-
-        user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+        return
       }
 
+      // Existing user - show welcome back
+      const link = await db.prepare('SELECT * FROM payment_links WHERE user_id = ? AND is_active = 1').get(userId)
+      const tipUrl = link ? `${BASE_URL}/${link.slug}` : null
+      
       await bot.sendMessage(chatId,
         `🎉 <b>KeetaTip</b>\n\n` +
-        `Welcome back! Tip anyone with KTA.\n\n` +
-        `💳 <code>${user.keeta_address}</code>`,
+        `Welcome back, <b>${user.username}</b>!\n\n` +
+        `💳 <code>${user.keeta_address}</code>` +
+        (tipUrl ? `\n🔗 <a href="${tipUrl}">${tipUrl}</a>` : ''),
         { parse_mode: 'HTML', reply_markup: mainMenu }
       )
     } catch (e) {
@@ -357,6 +341,61 @@ async function start() {
     await bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: mainMenu })
   })
 
+  // /setusername command - change username
+  bot.onText(/\/setusername(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id
+    const userId = msg.from.id
+    
+    const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+    if (!user) {
+      await bot.sendMessage(chatId, '❌ Please /start first to create a wallet.')
+      return
+    }
+    
+    if (match && match[1]) {
+      // Direct: /setusername newname
+      const newUsername = match[1].trim().toLowerCase()
+      
+      if (newUsername.length < 3 || newUsername.length > 15) {
+        await bot.sendMessage(chatId, '❌ Username must be 3-15 characters.')
+        return
+      }
+      
+      if (!/^[a-z0-9]+$/.test(newUsername)) {
+        await bot.sendMessage(chatId, '❌ Only letters (a-z) and numbers (0-9) allowed.')
+        return
+      }
+      
+      const existingUser = await db.prepare('SELECT * FROM users WHERE LOWER(username) = ? AND telegram_id != ?').get(newUsername, userId)
+      const existingLink = await db.prepare('SELECT * FROM payment_links WHERE slug = ? AND user_id != ?').get(newUsername, userId)
+      
+      if (existingUser || existingLink) {
+        await bot.sendMessage(chatId, `❌ Username "${newUsername}" is already taken.`)
+        return
+      }
+      
+      // Update username and payment link
+      await db.prepare('UPDATE users SET username = ? WHERE telegram_id = ?').run(newUsername, userId)
+      await db.prepare('UPDATE payment_links SET slug = ? WHERE user_id = ?').run(newUsername, userId)
+      
+      const tipUrl = `${BASE_URL}/${newUsername}`
+      await bot.sendMessage(chatId,
+        `✅ Username changed to <b>${newUsername}</b>!\n\n` +
+        `🔗 New tip link: <a href="${tipUrl}">${tipUrl}</a>`,
+        { parse_mode: 'HTML', reply_markup: mainMenu }
+      )
+    } else {
+      // Start flow
+      userState.set(userId, { step: 'set_username' })
+      await bot.sendMessage(chatId,
+        `👤 <b>Change Username</b>\n\n` +
+        `Current: <b>${user.username}</b>\n\n` +
+        `Enter new username (3-15 chars, a-z and 0-9 only):`,
+        { parse_mode: 'HTML' }
+      )
+    }
+  })
+
   // /help command
   bot.onText(/\/help/, async (msg) => {
     const chatId = msg.chat.id
@@ -369,6 +408,7 @@ async function start() {
       `/tip @user amount - Tip a user\n` +
       `/receive - Show your address & tip link\n` +
       `/mylink - Get your payment link\n` +
+      `/setusername - Change your username\n` +
       `/history - View transaction history\n` +
       `/leaderboard - Top tippers & receivers\n\n` +
       `<b>Group Tipping:</b>\n` +
@@ -561,6 +601,97 @@ async function start() {
     if (!state) return
 
     try {
+      // Handle username selection for new users
+      if (state.step === 'choose_username') {
+        const chosenUsername = msg.text?.trim().toLowerCase()
+        
+        // Validate username
+        if (!chosenUsername || chosenUsername.length < 3 || chosenUsername.length > 15) {
+          await bot.sendMessage(chatId, '❌ Username must be 3-15 characters. Try again:')
+          return
+        }
+        
+        if (!/^[a-z0-9]+$/.test(chosenUsername)) {
+          await bot.sendMessage(chatId, '❌ Only letters (a-z) and numbers (0-9) allowed. Try again:')
+          return
+        }
+        
+        // Check if username is taken
+        const existingUser = await db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(chosenUsername)
+        const existingLink = await db.prepare('SELECT * FROM payment_links WHERE slug = ?').get(chosenUsername)
+        
+        if (existingUser || existingLink) {
+          await bot.sendMessage(chatId, `❌ Username "${chosenUsername}" is already taken. Try another:`)
+          return
+        }
+        
+        // Create wallet
+        await bot.sendMessage(chatId, '🔐 Creating your Keeta wallet...')
+        
+        const wallet = keeta.createWallet()
+        const encryptedSeed = encryptSeed(wallet.seed, userId.toString())
+        
+        await db.prepare(`
+          INSERT INTO users (telegram_id, username, keeta_address, encrypted_seed)
+          VALUES (?, ?, ?, ?)
+        `).run(userId, chosenUsername, wallet.address, encryptedSeed)
+        
+        await db.prepare(`
+          INSERT INTO payment_links (user_id, slug) VALUES (?, ?)
+        `).run(userId, chosenUsername)
+        
+        const tipUrl = `${BASE_URL}/${chosenUsername}`
+        
+        userState.delete(userId)
+        
+        await bot.sendMessage(chatId,
+          `✅ <b>Wallet Created!</b>\n\n` +
+          `👤 Username: <b>${chosenUsername}</b>\n` +
+          `💳 Address:\n<code>${wallet.address}</code>\n\n` +
+          `🔗 Your tip link:\n<a href="${tipUrl}">${tipUrl}</a>\n\n` +
+          `⚠️ <i>This is a testnet wallet. Get test KTA from the faucet.</i>`,
+          { parse_mode: 'HTML', reply_markup: mainMenu }
+        )
+        return
+      }
+      
+      // Handle username change for existing users
+      if (state.step === 'set_username') {
+        const newUsername = msg.text?.trim().toLowerCase()
+        const userId = msg.from.id
+        
+        if (!newUsername || newUsername.length < 3 || newUsername.length > 15) {
+          await bot.sendMessage(chatId, '❌ Username must be 3-15 characters. Try again:')
+          return
+        }
+        
+        if (!/^[a-z0-9]+$/.test(newUsername)) {
+          await bot.sendMessage(chatId, '❌ Only letters (a-z) and numbers (0-9) allowed. Try again:')
+          return
+        }
+        
+        const existingUser = await db.prepare('SELECT * FROM users WHERE LOWER(username) = ? AND telegram_id != ?').get(newUsername, userId)
+        const existingLink = await db.prepare('SELECT * FROM payment_links WHERE slug = ? AND user_id != ?').get(newUsername, userId)
+        
+        if (existingUser || existingLink) {
+          await bot.sendMessage(chatId, `❌ Username "${newUsername}" is already taken. Try another:`)
+          return
+        }
+        
+        await db.prepare('UPDATE users SET username = ? WHERE telegram_id = ?').run(newUsername, userId)
+        await db.prepare('UPDATE payment_links SET slug = ? WHERE user_id = ?').run(newUsername, userId)
+        
+        userState.delete(userId)
+        
+        const tipUrl = `${BASE_URL}/${newUsername}`
+        await bot.sendMessage(chatId,
+          `✅ Username changed to <b>${newUsername}</b>!\n\n` +
+          `🔗 New tip link: <a href="${tipUrl}">${tipUrl}</a>`,
+          { parse_mode: 'HTML', reply_markup: mainMenu }
+        )
+        return
+      }
+      
       const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
       if (!user) return
 
