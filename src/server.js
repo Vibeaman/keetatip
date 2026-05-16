@@ -82,46 +82,49 @@ app.get('/:slug', async (req, res) => {
   console.log(`[PAGE] Request for slug: ${slug}`)
 
   try {
-    // First check if slug exists at all
-    const linkOnly = await db.prepare('SELECT * FROM payment_links WHERE slug = ?').get(slug)
-    console.log(`[PAGE] Link found:`, linkOnly)
+    // Get payment link first
+    const paymentLink = await db.prepare('SELECT * FROM payment_links WHERE slug = ? AND is_active = 1').get(slug)
+    console.log(`[PAGE] Payment link:`, paymentLink)
     
-    if (linkOnly) {
-      const userOnly = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(linkOnly.user_id)
-      console.log(`[PAGE] User found:`, userOnly)
+    if (!paymentLink) {
+      return res.status(404).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Not Found - KeetaTip</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            body { font-family: system-ui; text-align: center; padding: 50px; background: #1a1a2e; color: white; }
+            h1 { font-size: 48px; }
+          </style>
+        </head>
+        <body>
+          <h1>404</h1>
+          <p>User not found</p>
+          <a href="/" style="color: #7b68ee;">Go home</a>
+        </body>
+        </html>
+      `)
     }
     
-    const link = await db.prepare(`
-      SELECT pl.*, u.username, u.keeta_address
-      FROM payment_links pl
-      JOIN users u ON pl.user_id = u.telegram_id
-      WHERE pl.slug = ? AND pl.is_active = 1
-    `).get(slug)
+    // Get user separately
+    const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(paymentLink.user_id)
+    console.log(`[PAGE] User:`, user)
     
-    console.log(`[PAGE] JOIN result:`, link)
+    if (!user) {
+      return res.status(404).send('User not found')
+    }
+    
+    // Combine into link object for template
+    const link = {
+      ...paymentLink,
+      username: user.username,
+      keeta_address: user.keeta_address
+    }
+    
+    console.log(`[PAGE] Combined link:`, link)
 
-  if (!link) {
-    return res.status(404).send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Not Found - KeetaTip</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-          body { font-family: system-ui; text-align: center; padding: 50px; background: #1a1a2e; color: white; }
-          h1 { font-size: 48px; }
-        </style>
-      </head>
-      <body>
-        <h1>404</h1>
-        <p>User not found</p>
-        <a href="/" style="color: #7b68ee;">Go home</a>
-      </body>
-      </html>
-    `)
-  }
-
-  // Generate tip page HTML
+    // Generate tip page HTML
   const html = `
 <!DOCTYPE html>
 <html lang="en">
