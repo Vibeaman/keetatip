@@ -396,18 +396,95 @@ async function start() {
     }
   })
 
+  // /exportwallet - show seed phrase
+  bot.onText(/\/exportwallet/, async (msg) => {
+    const chatId = msg.chat.id
+    const userId = msg.from.id
+    
+    const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+    if (!user) {
+      await bot.sendMessage(chatId, '❌ Please /start first to create a wallet.')
+      return
+    }
+    
+    try {
+      const seed = decryptSeed(user.encrypted_seed, userId.toString())
+      await bot.sendMessage(chatId,
+        `🔐 <b>Your Wallet Seed</b>\n\n` +
+        `<code>${seed}</code>\n\n` +
+        `⚠️ <b>IMPORTANT:</b> Keep this safe! Anyone with this seed can access your funds.\n\n` +
+        `This is a 64-character hex seed. Save it securely to recover your wallet.`,
+        { parse_mode: 'HTML' }
+      )
+    } catch (e) {
+      console.error('Export wallet error:', e)
+      await bot.sendMessage(chatId, '❌ Error exporting wallet.')
+    }
+  })
+
+  // /importwallet - import existing wallet
+  bot.onText(/\/importwallet/, async (msg) => {
+    const chatId = msg.chat.id
+    const userId = msg.from.id
+    
+    const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+    if (user) {
+      await bot.sendMessage(chatId,
+        `⚠️ You already have a wallet!\n\n` +
+        `Use /deletewallet first if you want to import a different one.`,
+        { parse_mode: 'HTML' }
+      )
+      return
+    }
+    
+    userState.set(userId, { step: 'import_wallet' })
+    await bot.sendMessage(chatId,
+      `📥 <b>Import Wallet</b>\n\n` +
+      `Enter your seed (64-character hex) or mnemonic phrase (24 words):`,
+      { parse_mode: 'HTML' }
+    )
+  })
+
+  // /deletewallet - delete current wallet
+  bot.onText(/\/deletewallet/, async (msg) => {
+    const chatId = msg.chat.id
+    const userId = msg.from.id
+    
+    const user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
+    if (!user) {
+      await bot.sendMessage(chatId, '❌ No wallet to delete.')
+      return
+    }
+    
+    userState.set(userId, { step: 'confirm_delete' })
+    await bot.sendMessage(chatId,
+      `⚠️ <b>Delete Wallet</b>\n\n` +
+      `This will permanently delete your wallet!\n\n` +
+      `💳 Address: <code>${user.keeta_address}</code>\n\n` +
+      `Make sure you have exported your seed first with /exportwallet\n\n` +
+      `Type <code>DELETE</code> to confirm:`,
+      { parse_mode: 'HTML' }
+    )
+  })
+
   // /help command
   bot.onText(/\/help/, async (msg) => {
     const chatId = msg.chat.id
     
     await bot.sendMessage(chatId,
       `📖 <b>KeetaTip Commands</b>\n\n` +
+      `<b>Wallet:</b>\n` +
       `/start - Create wallet & show menu\n` +
       `/balance - Check your KTA balance\n` +
+      `/exportwallet - Show your seed phrase\n` +
+      `/importwallet - Import existing wallet\n` +
+      `/deletewallet - Delete current wallet\n\n` +
+      `<b>Payments:</b>\n` +
       `/send - Send KTA to address or @user\n` +
       `/tip @user amount - Tip a user\n` +
       `/receive - Show your address & tip link\n` +
-      `/mylink - Get your payment link\n` +
+      `/mylink - Get your payment link\n\n` +
+      `<b>Profile:</b>\n` +
       `/setusername - Change your username\n` +
       `/history - View transaction history\n` +
       `/leaderboard - Top tippers & receivers\n\n` +
@@ -688,6 +765,109 @@ async function start() {
           `✅ Username changed to <b>${newUsername}</b>!\n\n` +
           `🔗 New tip link: <code>${tipUrl}</code>`,
           { parse_mode: 'HTML', reply_markup: mainMenu }
+        )
+        return
+      }
+      
+      // Handle wallet import
+      if (state.step === 'import_wallet') {
+        const input = msg.text?.trim()
+        let seed = null
+        
+        // Check if it's a 64-char hex seed
+        if (/^[a-f0-9]{64}$/i.test(input)) {
+          seed = input.toLowerCase()
+        }
+        // Check if it's a mnemonic (24 words)
+        else if (input.split(/\s+/).length >= 12) {
+          try {
+            const KeetaNet = require('@keetanetwork/keetanet-client')
+            seed = KeetaNet.lib.Account.seedFromPassphrase(input)
+          } catch (e) {
+            await bot.sendMessage(chatId, '❌ Invalid mnemonic phrase. Please try again:')
+            return
+          }
+        } else {
+          await bot.sendMessage(chatId, '❌ Invalid format. Enter a 64-char hex seed or 24-word mnemonic:')
+          return
+        }
+        
+        // Ask for username
+        userState.set(userId, { step: 'import_username', seed })
+        await bot.sendMessage(chatId,
+          `✅ Seed valid!\n\nNow choose a username for your tip link (3-15 chars, a-z and 0-9 only):`,
+          { parse_mode: 'HTML' }
+        )
+        return
+      }
+      
+      // Handle username for imported wallet
+      if (state.step === 'import_username') {
+        const chosenUsername = msg.text?.trim().toLowerCase()
+        
+        if (!chosenUsername || chosenUsername.length < 3 || chosenUsername.length > 15) {
+          await bot.sendMessage(chatId, '❌ Username must be 3-15 characters. Try again:')
+          return
+        }
+        
+        if (!/^[a-z0-9]+$/.test(chosenUsername)) {
+          await bot.sendMessage(chatId, '❌ Only letters (a-z) and numbers (0-9) allowed. Try again:')
+          return
+        }
+        
+        const existingUser = await db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(chosenUsername)
+        const existingLink = await db.prepare('SELECT * FROM payment_links WHERE slug = ?').get(chosenUsername)
+        
+        if (existingUser || existingLink) {
+          await bot.sendMessage(chatId, `❌ Username "${chosenUsername}" is already taken. Try another:`)
+          return
+        }
+        
+        // Create wallet from imported seed
+        const account = keeta.getAccount(state.seed)
+        const address = account.publicKeyString.get()
+        const encryptedSeed = encryptSeed(state.seed, userId.toString())
+        
+        await db.prepare(`
+          INSERT INTO users (telegram_id, username, keeta_address, encrypted_seed)
+          VALUES (?, ?, ?, ?)
+        `).run(userId, chosenUsername, address, encryptedSeed)
+        
+        await db.prepare(`
+          INSERT INTO payment_links (user_id, slug) VALUES (?, ?)
+        `).run(userId, chosenUsername)
+        
+        const tipUrl = `${BASE_URL}/tip/${chosenUsername}`
+        
+        userState.delete(userId)
+        
+        await bot.sendMessage(chatId,
+          `✅ <b>Wallet Imported!</b>\n\n` +
+          `👤 Username: <b>${chosenUsername}</b>\n` +
+          `💳 Address:\n<code>${address}</code>\n\n` +
+          `🔗 Your tip link:\n<code>${tipUrl}</code>`,
+          { parse_mode: 'HTML', reply_markup: mainMenu }
+        )
+        return
+      }
+      
+      // Handle wallet deletion confirmation
+      if (state.step === 'confirm_delete') {
+        if (msg.text?.trim() !== 'DELETE') {
+          await bot.sendMessage(chatId, '❌ Cancelled. Type DELETE to confirm, or send any other command to cancel.')
+          userState.delete(userId)
+          return
+        }
+        
+        // Delete user data
+        await db.prepare('DELETE FROM payment_links WHERE user_id = ?').run(userId)
+        await db.prepare('DELETE FROM users WHERE telegram_id = ?').run(userId)
+        
+        userState.delete(userId)
+        
+        await bot.sendMessage(chatId,
+          `✅ Wallet deleted!\n\nUse /start to create a new wallet or /importwallet to import an existing one.`,
+          { parse_mode: 'HTML' }
         )
         return
       }
