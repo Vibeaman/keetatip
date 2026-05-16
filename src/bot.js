@@ -51,19 +51,36 @@ async function start() {
       console.log(`🔍 User lookup for ${userId}:`, user ? 'FOUND' : 'NOT FOUND')
 
       if (!user) {
-        // New user - ask them to choose a username
-        userState.set(userId, { step: 'choose_username', telegramUsername })
+        // New user - create wallet with Telegram username
+        await bot.sendMessage(chatId, '🔐 Creating your Keeta wallet...')
+        
+        const wallet = keeta.createWallet()
+        const encryptedSeed = encryptSeed(wallet.seed, userId.toString())
+        const username = telegramUsername
+        
+        await db.prepare(`
+          INSERT INTO users (telegram_id, username, keeta_address, encrypted_seed)
+          VALUES (?, ?, ?, ?)
+        `).run(userId, username, wallet.address, encryptedSeed)
+        
+        // Create payment link with sanitized username
+        const slug = username.toLowerCase().replace(/[^a-z0-9]/g, '') || `user${userId}`
+        try {
+          await db.prepare(`INSERT INTO payment_links (user_id, slug) VALUES (?, ?)`).run(userId, slug)
+        } catch (e) {
+          await db.prepare(`INSERT INTO payment_links (user_id, slug) VALUES (?, ?)`).run(userId, `${slug}${Math.floor(Math.random() * 1000)}`)
+        }
+        
+        const tipUrl = `${BASE_URL}/tip/${slug}`
         await bot.sendMessage(chatId,
-          `👋 <b>Welcome to KeetaTip!</b>\n\n` +
-          `Let's set up your wallet.\n\n` +
-          `First, choose a <b>username</b> for your tip link:\n` +
-          `• Letters and numbers only (a-z, 0-9)\n` +
-          `• 3-15 characters\n` +
-          `• Example: <code>john</code>, <code>alice99</code>\n\n` +
-          `Your tip link will be:\n<code>${BASE_URL}/yourname</code>`,
+          `✅ <b>Wallet Created!</b>\n\n` +
+          `💳 Address:\n<code>${wallet.address}</code>\n\n` +
+          `🔗 Your tip link:\n<code>${tipUrl}</code>\n\n` +
+          `⚠️ <i>This is a testnet wallet. Get test KTA from the faucet.</i>`,
           { parse_mode: 'HTML' }
         )
-        return
+        
+        user = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(userId)
       }
 
       // Existing user - show welcome back
@@ -440,7 +457,7 @@ async function start() {
     userState.set(userId, { step: 'import_wallet' })
     await bot.sendMessage(chatId,
       `📥 <b>Import Wallet</b>\n\n` +
-      `Enter your 64-character hex seed:\n\n(Use /exportwallet on another account to get it)`,
+      `Enter your seed (64-char hex) or mnemonic phrase:`,
       { parse_mode: 'HTML' }
     )
   })
@@ -485,7 +502,7 @@ async function start() {
       `/receive - Show your address & tip link\n` +
       `/mylink - Get your payment link\n\n` +
       `<b>Profile:</b>\n` +
-      `/setusername - Change your username\n` +
+
       `/history - View transaction history\n` +
       `/leaderboard - Top tippers & receivers\n\n` +
       `<b>Group Tipping:</b>\n` +
@@ -678,59 +695,6 @@ async function start() {
     if (!state) return
 
     try {
-      // Handle username selection for new users
-      if (state.step === 'choose_username') {
-        const chosenUsername = msg.text?.trim().toLowerCase()
-        
-        // Validate username
-        if (!chosenUsername || chosenUsername.length < 3 || chosenUsername.length > 15) {
-          await bot.sendMessage(chatId, '❌ Username must be 3-15 characters. Try again:')
-          return
-        }
-        
-        if (!/^[a-z0-9]+$/.test(chosenUsername)) {
-          await bot.sendMessage(chatId, '❌ Only letters (a-z) and numbers (0-9) allowed. Try again:')
-          return
-        }
-        
-        // Check if username is taken
-        const existingUser = await db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(chosenUsername)
-        const existingLink = await db.prepare('SELECT * FROM payment_links WHERE slug = ?').get(chosenUsername)
-        
-        if (existingUser || existingLink) {
-          await bot.sendMessage(chatId, `❌ Username "${chosenUsername}" is already taken. Try another:`)
-          return
-        }
-        
-        // Create wallet
-        await bot.sendMessage(chatId, '🔐 Creating your Keeta wallet...')
-        
-        const wallet = keeta.createWallet()
-        const encryptedSeed = encryptSeed(wallet.seed, userId.toString())
-        
-        await db.prepare(`
-          INSERT INTO users (telegram_id, username, keeta_address, encrypted_seed)
-          VALUES (?, ?, ?, ?)
-        `).run(userId, chosenUsername, wallet.address, encryptedSeed)
-        
-        await db.prepare(`
-          INSERT INTO payment_links (user_id, slug) VALUES (?, ?)
-        `).run(userId, chosenUsername)
-        
-        const tipUrl = `${BASE_URL}/tip/${chosenUsername}`
-        
-        userState.delete(userId)
-        
-        await bot.sendMessage(chatId,
-          `✅ <b>Wallet Created!</b>\n\n` +
-          `👤 Username: <b>${chosenUsername}</b>\n` +
-          `💳 Address:\n<code>${wallet.address}</code>\n\n` +
-          `🔗 Your tip link:\n<code>${tipUrl}</code>\n\n` +
-          `⚠️ <i>This is a testnet wallet. Get test KTA from the faucet.</i>`,
-          { parse_mode: 'HTML', reply_markup: mainMenu }
-        )
-        return
-      }
       
       // Handle username change for existing users
       if (state.step === 'set_username') {
@@ -772,74 +736,54 @@ async function start() {
       // Handle wallet import
       if (state.step === 'import_wallet') {
         const input = msg.text?.trim()
+        let seed = null
         
-        // Only accept 64-char hex seed
-        if (!/^[a-f0-9]{64}$/i.test(input)) {
-          await bot.sendMessage(chatId, '❌ Invalid format. Enter a 64-character hex seed:')
+        // Check if it's a 64-char hex seed
+        if (/^[a-f0-9]{64}$/i.test(input)) {
+          seed = input.toLowerCase()
+        }
+        // Check if it's a mnemonic (12+ words)
+        else if (input.split(/\s+/).length >= 12) {
+          try {
+            const KeetaNet = require('@keetanetwork/keetanet-client')
+            const seedBuffer = await KeetaNet.lib.Account.seedFromPassphrase(input)
+            seed = Buffer.from(seedBuffer).toString('hex')
+            console.log(`[IMPORT] Converted mnemonic to hex seed`)
+          } catch (e) {
+            console.error('[IMPORT] Mnemonic error:', e)
+            await bot.sendMessage(chatId, '❌ Invalid mnemonic phrase. Please try again:')
+            return
+          }
+        } else {
+          await bot.sendMessage(chatId, '❌ Invalid format. Enter a 64-char hex seed or mnemonic phrase:')
           return
         }
         
-        const seed = input.toLowerCase()
-        
-        // Ask for username
-        userState.set(userId, { step: 'import_username', seed })
-        await bot.sendMessage(chatId,
-          `✅ Seed valid!\n\nNow choose a username for your tip link (3-15 chars, a-z and 0-9 only):`,
-          { parse_mode: 'HTML' }
-        )
-        return
-      }
-      
-      // Handle username for imported wallet
-      if (state.step === 'import_username') {
-        const chosenUsername = msg.text?.trim().toLowerCase()
-        
-        console.log(`[IMPORT] Username step for ${userId}, username: ${chosenUsername}`)
-        console.log(`[IMPORT] Seed from state:`, state.seed ? state.seed.substring(0, 10) + '...' : 'MISSING')
-        
-        if (!chosenUsername || chosenUsername.length < 3 || chosenUsername.length > 15) {
-          await bot.sendMessage(chatId, '❌ Username must be 3-15 characters. Try again:')
-          return
-        }
-        
-        if (!/^[a-z0-9]+$/.test(chosenUsername)) {
-          await bot.sendMessage(chatId, '❌ Only letters (a-z) and numbers (0-9) allowed. Try again:')
-          return
-        }
-        
-        const existingUser = await db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(chosenUsername)
-        const existingLink = await db.prepare('SELECT * FROM payment_links WHERE slug = ?').get(chosenUsername)
-        
-        if (existingUser || existingLink) {
-          await bot.sendMessage(chatId, `❌ Username "${chosenUsername}" is already taken. Try another:`)
-          return
-        }
-        
+        // Create wallet directly with Telegram username
         try {
-          // Create wallet from imported seed
-          console.log(`[IMPORT] Creating account from seed`)
-          const account = keeta.getAccount(state.seed)
-          console.log(`[IMPORT] Got account, getting address`)
+          const username = msg.from.username || msg.from.first_name || `user${userId}`
+          const account = keeta.getAccount(seed)
           const address = account.publicKeyString.get()
-          console.log(`[IMPORT] Address: ${address}`)
-          const encryptedSeed = encryptSeed(state.seed, userId.toString())
-        
+          const encryptedSeed = encryptSeed(seed, userId.toString())
+          
           await db.prepare(`
             INSERT INTO users (telegram_id, username, keeta_address, encrypted_seed)
             VALUES (?, ?, ?, ?)
-          `).run(userId, chosenUsername, address, encryptedSeed)
+          `).run(userId, username, address, encryptedSeed)
           
-          await db.prepare(`
-            INSERT INTO payment_links (user_id, slug) VALUES (?, ?)
-          `).run(userId, chosenUsername)
+          const slug = username.toLowerCase().replace(/[^a-z0-9]/g, '') || `user${userId}`
+          try {
+            await db.prepare(`INSERT INTO payment_links (user_id, slug) VALUES (?, ?)`).run(userId, slug)
+          } catch (e) {
+            await db.prepare(`INSERT INTO payment_links (user_id, slug) VALUES (?, ?)`).run(userId, `${slug}${Math.floor(Math.random() * 1000)}`)
+          }
           
-          const tipUrl = `${BASE_URL}/tip/${chosenUsername}`
+          const tipUrl = `${BASE_URL}/tip/${slug}`
           
           userState.delete(userId)
           
           await bot.sendMessage(chatId,
             `✅ <b>Wallet Imported!</b>\n\n` +
-            `👤 Username: <b>${chosenUsername}</b>\n` +
             `💳 Address:\n<code>${address}</code>\n\n` +
             `🔗 Your tip link:\n<code>${tipUrl}</code>`,
             { parse_mode: 'HTML', reply_markup: mainMenu }
