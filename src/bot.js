@@ -304,7 +304,7 @@ async function start() {
       SELECT u.username, SUM(CAST(t.amount AS REAL)) as total
       FROM tips t
       JOIN users u ON t.from_user_id = u.telegram_id
-      GROUP BY t.from_user_id
+      GROUP BY t.from_user_id, u.username
       ORDER BY total DESC
       LIMIT 10
     `).all()
@@ -313,7 +313,7 @@ async function start() {
       SELECT u.username, SUM(CAST(t.amount AS REAL)) as total
       FROM tips t
       JOIN users u ON t.to_user_id = u.telegram_id
-      GROUP BY t.to_user_id
+      GROUP BY t.to_user_id, u.username
       ORDER BY total DESC
       LIMIT 10
     `).all()
@@ -547,7 +547,7 @@ async function start() {
           SELECT u.username, SUM(CAST(t.amount AS REAL)) as total
           FROM tips t
           JOIN users u ON t.from_user_id = u.telegram_id
-          GROUP BY t.from_user_id
+          GROUP BY t.from_user_id, u.username
           ORDER BY total DESC
           LIMIT 10
         `).all()
@@ -556,7 +556,7 @@ async function start() {
           SELECT u.username, SUM(CAST(t.amount AS REAL)) as total
           FROM tips t
           JOIN users u ON t.to_user_id = u.telegram_id
-          GROUP BY t.to_user_id
+          GROUP BY t.to_user_id, u.username
           ORDER BY total DESC
           LIMIT 10
         `).all()
