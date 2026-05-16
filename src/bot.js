@@ -782,8 +782,10 @@ async function start() {
         else if (input.split(/\s+/).length >= 12) {
           try {
             const KeetaNet = require('@keetanetwork/keetanet-client')
-            seed = KeetaNet.lib.Account.seedFromPassphrase(input)
+            seed = await KeetaNet.lib.Account.seedFromPassphrase(input)
+            console.log(`[IMPORT] Seed from mnemonic:`, seed ? seed.substring(0, 10) + '...' : 'NULL')
           } catch (e) {
+            console.error('[IMPORT] Mnemonic error:', e)
             await bot.sendMessage(chatId, '❌ Invalid mnemonic phrase. Please try again:')
             return
           }
