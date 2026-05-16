@@ -805,6 +805,9 @@ async function start() {
       if (state.step === 'import_username') {
         const chosenUsername = msg.text?.trim().toLowerCase()
         
+        console.log(`[IMPORT] Username step for ${userId}, username: ${chosenUsername}`)
+        console.log(`[IMPORT] Seed from state:`, state.seed ? state.seed.substring(0, 10) + '...' : 'MISSING')
+        
         if (!chosenUsername || chosenUsername.length < 3 || chosenUsername.length > 15) {
           await bot.sendMessage(chatId, '❌ Username must be 3-15 characters. Try again:')
           return
@@ -823,31 +826,40 @@ async function start() {
           return
         }
         
-        // Create wallet from imported seed
-        const account = keeta.getAccount(state.seed)
-        const address = account.publicKeyString.get()
-        const encryptedSeed = encryptSeed(state.seed, userId.toString())
+        try {
+          // Create wallet from imported seed
+          console.log(`[IMPORT] Creating account from seed`)
+          const account = keeta.getAccount(state.seed)
+          console.log(`[IMPORT] Got account, getting address`)
+          const address = account.publicKeyString.get()
+          console.log(`[IMPORT] Address: ${address}`)
+          const encryptedSeed = encryptSeed(state.seed, userId.toString())
         
-        await db.prepare(`
-          INSERT INTO users (telegram_id, username, keeta_address, encrypted_seed)
-          VALUES (?, ?, ?, ?)
-        `).run(userId, chosenUsername, address, encryptedSeed)
-        
-        await db.prepare(`
-          INSERT INTO payment_links (user_id, slug) VALUES (?, ?)
-        `).run(userId, chosenUsername)
-        
-        const tipUrl = `${BASE_URL}/tip/${chosenUsername}`
-        
-        userState.delete(userId)
-        
-        await bot.sendMessage(chatId,
-          `✅ <b>Wallet Imported!</b>\n\n` +
-          `👤 Username: <b>${chosenUsername}</b>\n` +
-          `💳 Address:\n<code>${address}</code>\n\n` +
-          `🔗 Your tip link:\n<code>${tipUrl}</code>`,
-          { parse_mode: 'HTML', reply_markup: mainMenu }
-        )
+          await db.prepare(`
+            INSERT INTO users (telegram_id, username, keeta_address, encrypted_seed)
+            VALUES (?, ?, ?, ?)
+          `).run(userId, chosenUsername, address, encryptedSeed)
+          
+          await db.prepare(`
+            INSERT INTO payment_links (user_id, slug) VALUES (?, ?)
+          `).run(userId, chosenUsername)
+          
+          const tipUrl = `${BASE_URL}/tip/${chosenUsername}`
+          
+          userState.delete(userId)
+          
+          await bot.sendMessage(chatId,
+            `✅ <b>Wallet Imported!</b>\n\n` +
+            `👤 Username: <b>${chosenUsername}</b>\n` +
+            `💳 Address:\n<code>${address}</code>\n\n` +
+            `🔗 Your tip link:\n<code>${tipUrl}</code>`,
+            { parse_mode: 'HTML', reply_markup: mainMenu }
+          )
+        } catch (e) {
+          console.error('[IMPORT] Error:', e)
+          await bot.sendMessage(chatId, `❌ Error importing wallet: ${e.message}`)
+          userState.delete(userId)
+        }
         return
       }
       
