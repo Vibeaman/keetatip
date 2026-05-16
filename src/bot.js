@@ -74,7 +74,7 @@ async function start() {
         `🎉 <b>KeetaTip</b>\n\n` +
         `Welcome back, <b>${user.username}</b>!\n\n` +
         `💳 <code>${user.keeta_address}</code>` +
-        (tipUrl ? `\n🔗 <a href="${tipUrl}">${tipUrl}</a>` : ''),
+        (tipUrl ? `\n🔗 <code>${tipUrl}</code>` : ''),
         { parse_mode: 'HTML', reply_markup: mainMenu }
       )
     } catch (e) {
@@ -134,8 +134,8 @@ async function start() {
         const fullUrl = `${BASE_URL}/tip/${link.slug}`
         await bot.sendMessage(chatId,
           `🔗 <b>Your Payment Link</b>\n\n` +
-          `<a href="${fullUrl}">${fullUrl}</a>\n\n` +
-          `Share this link to receive tips!`,
+          `<code>${fullUrl}</code>\n\n` +
+          `Tap to copy, then paste in browser!`,
           { parse_mode: 'HTML', reply_markup: mainMenu }
         )
       } else {
@@ -255,7 +255,7 @@ async function start() {
       `📥 <b>Receive KTA</b>\n\n` +
       `Your address:\n<code>${user.keeta_address}</code>\n\n` +
       `Share this address to receive KTA.\n\n` +
-      `🔗 Or share your tip link:\n<a href="${tipUrl}">${tipUrl}</a>`,
+      `🔗 Or share your tip link:\n<code>${tipUrl}</code>`,
       { parse_mode: 'HTML', reply_markup: mainMenu }
     )
   })
@@ -381,7 +381,7 @@ async function start() {
       const tipUrl = `${BASE_URL}/tip/${newUsername}`
       await bot.sendMessage(chatId,
         `✅ Username changed to <b>${newUsername}</b>!\n\n` +
-        `🔗 New tip link: <a href="${tipUrl}">${tipUrl}</a>`,
+        `🔗 New tip link: <code>${tipUrl}</code>`,
         { parse_mode: 'HTML', reply_markup: mainMenu }
       )
     } else {
@@ -466,7 +466,7 @@ async function start() {
           `📥 <b>Receive KTA</b>\n\n` +
           `Your address:\n<code>${user.keeta_address}</code>\n\n` +
           `Share this address to receive KTA.\n\n` +
-          `🔗 Or share your tip link:\n<a href="${tipUrl}">${tipUrl}</a>`,
+          `🔗 Or share your tip link:\n<code>${tipUrl}</code>`,
           { parse_mode: 'HTML', reply_markup: mainMenu }
         )
         return
@@ -480,8 +480,8 @@ async function start() {
           const fullUrl = `${BASE_URL}/tip/${link.slug}`
           await bot.sendMessage(chatId,
             `🔗 <b>Your Payment Link</b>\n\n` +
-            `<a href="${fullUrl}">${fullUrl}</a>\n\n` +
-            `Share this link to receive tips!`,
+            `<code>${fullUrl}</code>\n\n` +
+            `Tap to copy, then paste in browser!`,
             { parse_mode: 'HTML', reply_markup: mainMenu }
           )
         } else {
@@ -648,7 +648,7 @@ async function start() {
           `✅ <b>Wallet Created!</b>\n\n` +
           `👤 Username: <b>${chosenUsername}</b>\n` +
           `💳 Address:\n<code>${wallet.address}</code>\n\n` +
-          `🔗 Your tip link:\n<a href="${tipUrl}">${tipUrl}</a>\n\n` +
+          `🔗 Your tip link:\n<code>${tipUrl}</code>\n\n` +
           `⚠️ <i>This is a testnet wallet. Get test KTA from the faucet.</i>`,
           { parse_mode: 'HTML', reply_markup: mainMenu }
         )
@@ -686,7 +686,7 @@ async function start() {
         const tipUrl = `${BASE_URL}/tip/${newUsername}`
         await bot.sendMessage(chatId,
           `✅ Username changed to <b>${newUsername}</b>!\n\n` +
-          `🔗 New tip link: <a href="${tipUrl}">${tipUrl}</a>`,
+          `🔗 New tip link: <code>${tipUrl}</code>`,
           { parse_mode: 'HTML', reply_markup: mainMenu }
         )
         return
