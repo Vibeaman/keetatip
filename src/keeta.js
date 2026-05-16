@@ -57,7 +57,19 @@ async function getBalance(seedString) {
     const balances = {}
     if (state && state.balances) {
       for (const [token, amount] of Object.entries(state.balances)) {
-        balances[token] = amount.toString()
+        // Handle BigInt, object with value, or primitive
+        let amountStr = '0'
+        if (typeof amount === 'bigint') {
+          amountStr = (Number(amount) / 1e8).toFixed(8)
+        } else if (typeof amount === 'object' && amount !== null) {
+          // Try common properties
+          const val = amount.value || amount.amount || amount.balance || amount
+          amountStr = (Number(val) / 1e8).toFixed(8)
+        } else {
+          amountStr = (Number(amount) / 1e8).toFixed(8)
+        }
+        // Remove trailing zeros
+        balances[token] = parseFloat(amountStr).toString()
       }
     }
     
