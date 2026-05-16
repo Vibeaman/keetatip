@@ -440,7 +440,7 @@ async function start() {
     userState.set(userId, { step: 'import_wallet' })
     await bot.sendMessage(chatId,
       `📥 <b>Import Wallet</b>\n\n` +
-      `Enter your seed (64-character hex) or mnemonic phrase (24 words):`,
+      `Enter your 64-character hex seed:\n\n(Use /exportwallet on another account to get it)`,
       { parse_mode: 'HTML' }
     )
   })
@@ -772,27 +772,14 @@ async function start() {
       // Handle wallet import
       if (state.step === 'import_wallet') {
         const input = msg.text?.trim()
-        let seed = null
         
-        // Check if it's a 64-char hex seed
-        if (/^[a-f0-9]{64}$/i.test(input)) {
-          seed = input.toLowerCase()
-        }
-        // Check if it's a mnemonic (24 words)
-        else if (input.split(/\s+/).length >= 12) {
-          try {
-            const KeetaNet = require('@keetanetwork/keetanet-client')
-            seed = await KeetaNet.lib.Account.seedFromPassphrase(input)
-            console.log(`[IMPORT] Seed from mnemonic:`, seed ? seed.substring(0, 10) + '...' : 'NULL')
-          } catch (e) {
-            console.error('[IMPORT] Mnemonic error:', e)
-            await bot.sendMessage(chatId, '❌ Invalid mnemonic phrase. Please try again:')
-            return
-          }
-        } else {
-          await bot.sendMessage(chatId, '❌ Invalid format. Enter a 64-char hex seed or 24-word mnemonic:')
+        // Only accept 64-char hex seed
+        if (!/^[a-f0-9]{64}$/i.test(input)) {
+          await bot.sendMessage(chatId, '❌ Invalid format. Enter a 64-character hex seed:')
           return
         }
+        
+        const seed = input.toLowerCase()
         
         // Ask for username
         userState.set(userId, { step: 'import_username', seed })
