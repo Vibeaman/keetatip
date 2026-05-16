@@ -78,14 +78,27 @@ app.get('/api/payments/:slug', async (req, res) => {
 // Payment link page
 app.get('/:slug', async (req, res) => {
   const { slug } = req.params
+  
+  console.log(`[PAGE] Request for slug: ${slug}`)
 
   try {
+    // First check if slug exists at all
+    const linkOnly = await db.prepare('SELECT * FROM payment_links WHERE slug = ?').get(slug)
+    console.log(`[PAGE] Link found:`, linkOnly)
+    
+    if (linkOnly) {
+      const userOnly = await db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(linkOnly.user_id)
+      console.log(`[PAGE] User found:`, userOnly)
+    }
+    
     const link = await db.prepare(`
       SELECT pl.*, u.username, u.keeta_address
       FROM payment_links pl
       JOIN users u ON pl.user_id = u.telegram_id
       WHERE pl.slug = ? AND pl.is_active = 1
     `).get(slug)
+    
+    console.log(`[PAGE] JOIN result:`, link)
 
   if (!link) {
     return res.status(404).send(`
