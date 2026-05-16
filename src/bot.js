@@ -68,7 +68,7 @@ async function start() {
 
       // Existing user - show welcome back
       const link = await db.prepare('SELECT * FROM payment_links WHERE user_id = ? AND is_active = 1').get(userId)
-      const tipUrl = link ? `${BASE_URL}/${link.slug}` : null
+      const tipUrl = link ? `${BASE_URL}/tip/${link.slug}` : null
       
       await bot.sendMessage(chatId,
         `🎉 <b>KeetaTip</b>\n\n` +
@@ -131,7 +131,7 @@ async function start() {
       const link = await db.prepare('SELECT * FROM payment_links WHERE user_id = ? AND is_active = 1').get(userId)
       
       if (link) {
-        const fullUrl = `${BASE_URL}/${link.slug}`
+        const fullUrl = `${BASE_URL}/tip/${link.slug}`
         await bot.sendMessage(chatId,
           `🔗 <b>Your Payment Link</b>\n\n` +
           `<a href="${fullUrl}">${fullUrl}</a>\n\n` +
@@ -249,7 +249,7 @@ async function start() {
     }
     
     const link = await db.prepare('SELECT * FROM payment_links WHERE user_id = ? AND is_active = 1').get(userId)
-    const tipUrl = link ? `${BASE_URL}/${link.slug}` : `${BASE_URL}/user${userId}`
+    const tipUrl = link ? `${BASE_URL}/tip/${link.slug}` : `${BASE_URL}/tip/user${userId}`
     
     await bot.sendMessage(chatId,
       `📥 <b>Receive KTA</b>\n\n` +
@@ -378,7 +378,7 @@ async function start() {
       await db.prepare('UPDATE users SET username = ? WHERE telegram_id = ?').run(newUsername, userId)
       await db.prepare('UPDATE payment_links SET slug = ? WHERE user_id = ?').run(newUsername, userId)
       
-      const tipUrl = `${BASE_URL}/${newUsername}`
+      const tipUrl = `${BASE_URL}/tip/${newUsername}`
       await bot.sendMessage(chatId,
         `✅ Username changed to <b>${newUsername}</b>!\n\n` +
         `🔗 New tip link: <a href="${tipUrl}">${tipUrl}</a>`,
@@ -460,7 +460,7 @@ async function start() {
       // Receive
       if (data === 'receive') {
         const link = await db.prepare('SELECT * FROM payment_links WHERE user_id = ? AND is_active = 1').get(userId)
-        const tipUrl = link ? `${BASE_URL}/${link.slug}` : `${BASE_URL}/user${userId}`
+        const tipUrl = link ? `${BASE_URL}/tip/${link.slug}` : `${BASE_URL}/tip/user${userId}`
         
         await bot.sendMessage(chatId,
           `📥 <b>Receive KTA</b>\n\n` +
@@ -477,7 +477,7 @@ async function start() {
         const link = await db.prepare('SELECT * FROM payment_links WHERE user_id = ? AND is_active = 1').get(userId)
         
         if (link) {
-          const fullUrl = `${BASE_URL}/${link.slug}`
+          const fullUrl = `${BASE_URL}/tip/${link.slug}`
           await bot.sendMessage(chatId,
             `🔗 <b>Your Payment Link</b>\n\n` +
             `<a href="${fullUrl}">${fullUrl}</a>\n\n` +
@@ -640,7 +640,7 @@ async function start() {
           INSERT INTO payment_links (user_id, slug) VALUES (?, ?)
         `).run(userId, chosenUsername)
         
-        const tipUrl = `${BASE_URL}/${chosenUsername}`
+        const tipUrl = `${BASE_URL}/tip/${chosenUsername}`
         
         userState.delete(userId)
         
@@ -683,7 +683,7 @@ async function start() {
         
         userState.delete(userId)
         
-        const tipUrl = `${BASE_URL}/${newUsername}`
+        const tipUrl = `${BASE_URL}/tip/${newUsername}`
         await bot.sendMessage(chatId,
           `✅ Username changed to <b>${newUsername}</b>!\n\n` +
           `🔗 New tip link: <a href="${tipUrl}">${tipUrl}</a>`,

@@ -76,7 +76,7 @@ app.get('/api/payments/:slug', async (req, res) => {
 })
 
 // Payment link page
-app.get('/:slug', async (req, res) => {
+app.get('/tip/:slug', async (req, res) => {
   const { slug } = req.params
   
   console.log(`[PAGE] Request for slug: ${slug}`)
